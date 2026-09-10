@@ -1,0 +1,10 @@
+# Microsoft Office temporary lock files
+~$*.docx
+**/~$*.docx
+
+# Local QA output
+_qa/
+
+# Local temporary files
+*.tmp
+*.incoming

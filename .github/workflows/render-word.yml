@@ -1,0 +1,77 @@
+name: Render Word to PDF
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "docs/**/*.docx"
+      - "scripts/Export-WordToPdf.ps1"
+      - "scripts/Inspect-WordLayout.ps1"
+      - "scripts/Run-WordLayoutQa.ps1"
+      - ".github/workflows/render-word.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: word-render-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: [self-hosted, Windows, X64, word]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Render DOCX with Microsoft Word
+        shell: pwsh
+        run: |
+          ./scripts/Export-WordToPdf.ps1 -InputPath "docs"
+
+      - name: Run structural layout QA
+        shell: pwsh
+        run: |
+          ./scripts/Run-WordLayoutQa.ps1 -InputPath "docs" -ReportRoot "_qa"
+
+      - name: Upload PDFs and QA reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: word-render-results
+          path: |
+            docs/**/*.pdf
+            _qa/**/*.md
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Commit generated PDFs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -- docs
+
+          if ([string]::IsNullOrWhiteSpace((git status --porcelain -- docs))) {
+              Write-Host "No generated PDF changes to commit."
+              exit 0
+          }
+
+          git fetch origin "${{ github.ref_name }}"
+          $localHead = (git rev-parse HEAD).Trim()
+          $remoteHead = (git rev-parse "origin/${{ github.ref_name }}").Trim()
+
+          if ($localHead -ne $remoteHead) {
+              Write-Warning "Branch advanced during rendering. Skip committing potentially stale PDFs. The generated files remain available in the workflow artifact."
+              exit 0
+          }
+
+          git commit -m "自动生成 Word PDF 版式快照 [skip ci]"
+          git push origin "HEAD:${{ github.ref_name }}"
