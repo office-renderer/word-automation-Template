@@ -40,15 +40,16 @@ jobs:
       - name: Test an existing DOCX when available
         shell: pwsh
         run: |
-          $docx = Get-ChildItem -Path "docs" -Filter *.docx -File -Recurse -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -notmatch '^~\$' } |
+          $docxPath = git ls-files -- "*.docx" |
+              Where-Object { [System.IO.Path]::GetFileName($_) -notmatch '^~\$' } |
               Select-Object -First 1
 
-          if ($null -eq $docx) {
-              Write-Host "No DOCX in docs/. Environment check passed; render test skipped."
+          if ([string]::IsNullOrWhiteSpace($docxPath)) {
+              Write-Host "No tracked DOCX found. Environment check passed; render test skipped."
               exit 0
           }
 
+          $docx = Get-Item -LiteralPath $docxPath
           $testDir = Join-Path $env:RUNNER_TEMP "word-health-check"
           Remove-Item $testDir -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path $testDir -Force | Out-Null
