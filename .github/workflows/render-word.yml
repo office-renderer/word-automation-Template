@@ -28,17 +28,35 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Discover Word documents
+        id: discover
+        shell: pwsh
+        run: |
+          $docs = @(Get-ChildItem -Path "docs" -Filter *.docx -File -Recurse -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -notmatch '^~\$' })
+
+          if ($docs.Count -eq 0) {
+              "has_docx=false" >> $env:GITHUB_OUTPUT
+              Write-Host "No DOCX files found under docs/. Nothing to render."
+          } else {
+              "has_docx=true" >> $env:GITHUB_OUTPUT
+              Write-Host "Found $($docs.Count) DOCX file(s)."
+          }
+
       - name: Render DOCX with Microsoft Word
+        if: steps.discover.outputs.has_docx == 'true'
         shell: pwsh
         run: |
           ./scripts/Export-WordToPdf.ps1 -InputPath "docs"
 
       - name: Run structural layout QA
+        if: steps.discover.outputs.has_docx == 'true'
         shell: pwsh
         run: |
           ./scripts/Run-WordLayoutQa.ps1 -InputPath "docs" -ReportRoot "_qa"
 
       - name: Upload PDFs and QA reports
+        if: steps.discover.outputs.has_docx == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: word-render-results
@@ -50,6 +68,7 @@ jobs:
           compression-level: 0
 
       - name: Commit generated PDFs
+        if: steps.discover.outputs.has_docx == 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
