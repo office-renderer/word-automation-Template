@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$InputPath = "docs"
+    [string]$InputPath = "."
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +20,10 @@ $item = Get-Item -LiteralPath $resolvedInput
 
 if ($item.PSIsContainer) {
     $docxFiles = @(Get-ChildItem -LiteralPath $item.FullName -Filter *.docx -File -Recurse |
-        Where-Object { $_.Name -notmatch '^~\$' })
+        Where-Object {
+            $_.Name -notmatch '^~\$' -and
+            $_.FullName -notmatch '[\\/]\.git[\\/]'
+        })
 } else {
     if ($item.Extension -ne ".docx") {
         throw "Input file is not a .docx file: $($item.FullName)"
