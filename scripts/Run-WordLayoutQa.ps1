@@ -1,5 +1,5 @@
 param(
-    [string]$InputPath = "docs",
+    [string]$InputPath = ".",
     [string]$ReportRoot = "_qa"
 )
 
@@ -13,7 +13,10 @@ $item = Get-Item -LiteralPath $input
 if ($item.PSIsContainer) {
     $root = $item.FullName
     $docxFiles = @(Get-ChildItem -LiteralPath $root -Filter *.docx -File -Recurse |
-        Where-Object { $_.Name -notmatch '^~\$' })
+        Where-Object {
+            $_.Name -notmatch '^~\$' -and
+            $_.FullName -notmatch '[\\/]\.git[\\/]'
+        })
 } else {
     $root = Split-Path -Parent $item.FullName
     $docxFiles = @($item)
