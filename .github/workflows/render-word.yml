@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "docs/**/*.docx"
+      - "**/*.docx"
       - "scripts/Export-WordToPdf.ps1"
       - "scripts/Inspect-WordLayout.ps1"
       - "scripts/Run-WordLayoutQa.ps1"
@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: word-render-${{ github.ref }}
+  group: word-render-\${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -32,28 +32,58 @@ jobs:
         id: discover
         shell: pwsh
         run: |
-          $docs = @(Get-ChildItem -Path "docs" -Filter *.docx -File -Recurse -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -notmatch '^~\$' })
+          $docs = @(git ls-files -- "*.docx" |
+              Where-Object { [System.IO.Path]::GetFileName($_) -notmatch '^~\$' })
 
           if ($docs.Count -eq 0) {
               "has_docx=false" >> $env:GITHUB_OUTPUT
-              Write-Host "No DOCX files found under docs/. Nothing to render."
+              Write-Host "No tracked DOCX files found. Nothing to render."
           } else {
               "has_docx=true" >> $env:GITHUB_OUTPUT
-              Write-Host "Found $($docs.Count) DOCX file(s)."
+              Write-Host "Found $($docs.Count) tracked DOCX file(s):"
+              $docs | ForEach-Object { Write-Host "  $_" }
           }
 
-      - name: Render DOCX with Microsoft Word
+      - name: Render DOCX in place with Microsoft Word
         if: steps.discover.outputs.has_docx == 'true'
         shell: pwsh
         run: |
-          ./scripts/Export-WordToPdf.ps1 -InputPath "docs"
+          ./scripts/Export-WordToPdf.ps1 -InputPath "."
 
       - name: Run structural layout QA
         if: steps.discover.outputs.has_docx == 'true'
         shell: pwsh
         run: |
-          ./scripts/Run-WordLayoutQa.ps1 -InputPath "docs" -ReportRoot "_qa"
+          ./scripts/Run-WordLayoutQa.ps1 -InputPath "." -ReportRoot "_qa"
+
+      - name: Prepare generated PDFs for artifact
+        if: steps.discover.outputs.has_docx == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          Remove-Item "_artifact" -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path "_artifact\pdf" -Force | Out-Null
+          New-Item -ItemType Directory -Path "_artifact\qa" -Force | Out-Null
+
+          $docs = @(git ls-files -- "*.docx" |
+              Where-Object { [System.IO.Path]::GetFileName($_) -notmatch '^~\$' })
+
+          foreach ($docx in $docs) {
+              $pdf = [System.IO.Path]::ChangeExtension($docx, ".pdf")
+              if (-not (Test-Path -LiteralPath $pdf)) {
+                  throw "Expected generated PDF not found: $pdf"
+              }
+
+              $dest = Join-Path "_artifact\pdf" $pdf
+              $destDir = Split-Path -Parent $dest
+              New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+              Copy-Item -LiteralPath $pdf -Destination $dest -Force
+          }
+
+          if (Test-Path "_qa") {
+              Copy-Item "_qa\*" "_artifact\qa" -Recurse -Force
+          }
 
       - name: Upload PDFs and QA reports
         if: steps.discover.outputs.has_docx == 'true'
@@ -61,13 +91,12 @@ jobs:
         with:
           name: word-render-results
           path: |
-            docs/**/*.pdf
-            _qa/**/*.md
+            _artifact/**
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
 
-      - name: Commit generated PDFs
+      - name: Commit generated PDFs beside source DOCX
         if: steps.discover.outputs.has_docx == 'true'
         shell: pwsh
         run: |
@@ -76,16 +105,32 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add -- docs
+          $docs = @(git ls-files -- "*.docx" |
+              Where-Object { [System.IO.Path]::GetFileName($_) -notmatch '^~\$' })
 
-          if ([string]::IsNullOrWhiteSpace((git status --porcelain -- docs))) {
+          $pdfs = @()
+          foreach ($docx in $docs) {
+              $pdf = [System.IO.Path]::ChangeExtension($docx, ".pdf")
+              if (Test-Path -LiteralPath $pdf) {
+                  $pdfs += $pdf
+              }
+          }
+
+          if ($pdfs.Count -eq 0) {
+              Write-Host "No generated PDFs to commit."
+              exit 0
+          }
+
+          git add -- $pdfs
+
+          if ([string]::IsNullOrWhiteSpace((git status --porcelain))) {
               Write-Host "No generated PDF changes to commit."
               exit 0
           }
 
-          git fetch origin "${{ github.ref_name }}"
+          git fetch origin "\${{ github.ref_name }}"
           $localHead = (git rev-parse HEAD).Trim()
-          $remoteHead = (git rev-parse "origin/${{ github.ref_name }}").Trim()
+          $remoteHead = (git rev-parse "origin/\${{ github.ref_name }}").Trim()
 
           if ($localHead -ne $remoteHead) {
               Write-Warning "Branch advanced during rendering. Skip committing potentially stale PDFs. The generated files remain available in the workflow artifact."
@@ -93,4 +138,4 @@ jobs:
           }
 
           git commit -m "自动生成 Word PDF 版式快照 [skip ci]"
-          git push origin "HEAD:${{ github.ref_name }}"
+          git push origin "HEAD:\${{ github.ref_name }}"
