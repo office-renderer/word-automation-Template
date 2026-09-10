@@ -2,8 +2,9 @@
 ~$*.docx
 **/~$*.docx
 
-# Local QA output
+# Local QA / artifact output
 _qa/
+_artifact/
 
 # Local temporary files
 *.tmp
