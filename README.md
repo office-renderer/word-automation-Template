@@ -2,12 +2,15 @@
 
 用于 `office-renderer` 组织内 Word 文档自动化处理的模板仓库。
 
+这个仓库只提供处理方法。**实际 Word 文档始终留在目标项目仓库的原位置，不需要搬到固定的 `docs/` 目录，也不需要搬到本模板仓库。**
+
 核心流程：
 
 ```text
-ChatGPT / AI 修改 DOCX
-        ↓
-DOCX 提交到 GitHub
+目标项目仓库中的任意位置
+        │
+        ├─ 项目申请书.docx
+        │
         ↓
 GitHub Actions
         ↓
@@ -15,62 +18,70 @@ GitHub Actions
         ↓
 Microsoft Word 原生渲染
         ↓
-DOCX → PDF
+原位置生成：
+项目申请书.pdf
         ↓
 结构化版式 QA
         ↓
-PDF / QA 结果上传到 GitHub
+PDF / QA artifact
         ↓
 ChatGPT 获取 PDF 做视觉检查
-        ↓
-发现问题后继续修改 DOCX
 ```
 
-## 使用方式
+## 使用原则
 
-1. 用本仓库创建新的项目仓库，并尽量保留在 `office-renderer` 组织内。
-2. 将需要处理的 Word 文档放入 `docs/`，支持子目录。
-3. 提交或更新 `.docx` 后，`Render Word to PDF` 会自动运行。
-4. GitHub 会从所有满足以下标签的在线 Runner 中自动选择一台空闲机器：
-   - `self-hosted`
-   - `Windows`
-   - `X64`
-   - `word`
-5. Runner 使用本机 Microsoft Word 原生导出 PDF。
-6. 生成的 PDF 会：
-   - 作为 workflow artifact 上传，便于 ChatGPT 获取并做视觉 QA；
-   - 在分支未发生并发变化时提交回当前 Git 分支。
-7. 结构化 QA 报告作为 artifact 上传，不写入正式仓库历史。
+- Word 文件在哪个目录，就在那个目录直接转换。
+- PDF 与对应 DOCX **同目录、同文件名，仅扩展名不同**。
+- 不要求建立 `docs/` 文件夹。
+- 不把业务文档复制到 `word-automation-Template`。
+- 模板仓库只负责提供 workflow、PowerShell 脚本和 QA 逻辑。
 
-## 目录
+例如：
 
 ```text
-.github/workflows/
-├─ render-word.yml        # 正式：DOCX → Word → PDF → QA → GitHub
-└─ runner-health.yml      # 手动：检查 Runner / Git / PowerShell / Word
-
-scripts/
-├─ Export-WordToPdf.ps1   # Microsoft Word 原生 PDF 导出
-├─ Inspect-WordLayout.ps1 # 单个 DOCX 的结构化版式检查
-└─ Run-WordLayoutQa.ps1   # 批量执行 QA
-
-docs/
-└─ README.md              # Word 文档放置目录
+项目仓库/
+├─ 申报材料/
+│  ├─ 项目申请书.docx
+│  └─ 项目申请书.pdf
+├─ 汇报材料/
+│  ├─ 阶段报告.docx
+│  └─ 阶段报告.pdf
+└─ 背景资料/
+   └─ ...
 ```
+
+提交或更新仓库中任意 `.docx` 后，`Render Word to PDF` 会自动扫描仓库内受 Git 管理的 Word 文档，使用 Microsoft Word 原生渲染，并把生成的 PDF 推送回各自 DOCX 所在的原目录。
 
 ## Runner 选择
 
-工作流按标签选择 Runner，不绑定具体电脑。
+工作流使用：
 
-因此如果有多台合格电脑同时在线，GitHub 会选择其中一台当前可用的机器；如果只有一台在线，就使用那一台；全部离线时任务会等待。
+```yaml
+runs-on: [self-hosted, Windows, X64, word]
+```
 
-只有安装环境满足要求的电脑才应配置 `word` 标签。建议这些电脑尽量保持一致的：
+因此不绑定具体电脑。GitHub 会从所有具有这些标签且在线、空闲的 Runner 中自动选择一台。
 
-- Microsoft Word / Office 版本；
-- 常用字体；
-- 文档模板；
-- PowerShell 7；
-- Git for Windows。
+## 模板内容
+
+```text
+.github/workflows/
+├─ render-word.yml
+└─ runner-health.yml
+
+scripts/
+├─ Export-WordToPdf.ps1
+├─ Inspect-WordLayout.ps1
+└─ Run-WordLayoutQa.ps1
+```
+
+其中：
+
+- `render-word.yml`：任意位置 DOCX → 原位置 PDF → QA → artifact → PDF 提交回当前分支；
+- `runner-health.yml`：手动检查 Runner、Git、PowerShell 和 Word 环境；
+- `Export-WordToPdf.ps1`：Word 原生 PDF 导出，输出始终位于源 DOCX 同目录；
+- `Inspect-WordLayout.ps1`：结构化版式检查；
+- `Run-WordLayoutQa.ps1`：批量扫描仓库 Word 文档并汇总 QA。
 
 ## 重要原则
 
@@ -78,4 +89,4 @@ docs/
 - LibreOffice、Pandoc 等不作为正式 Word 版式的权威渲染器。
 - 结构化 QA 不能代替 PDF 视觉检查。
 - 修改 DOCX 后必须重新渲染，不能继续检查旧 PDF。
-- Runner 只执行受信任仓库中的 workflow；不要让不可信 PR 在个人电脑上的 self-hosted runner 执行任意脚本。
+- Runner 只执行受信任仓库中的 workflow。
